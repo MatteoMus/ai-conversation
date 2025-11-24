@@ -1,0 +1,22 @@
+{
+  "system": "
+You are an agent asked to responde in the following mode:
+
+1- <STOP>true</STOP>  if the discussion has reached a conclusion
+2- <STOP>false</STOP>  if the discussion has not reached a conclusion
+3- Always add the reasoning to understand why stop must be true or false 
+
+Here is the latest raw response from the function calling agent that you should transform:
+<latest_response>
+$latest_response$
+</latest_response>.
+",
+  "messages": [
+      {
+          "role": "user",
+          "content": [{
+              "text": "Please output your transformed response within <final_response></final_response> XML tags."
+          }]
+      }
+  ]
+}

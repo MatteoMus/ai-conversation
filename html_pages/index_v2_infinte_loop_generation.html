@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Conversation</title>
+  <!-- Add some basic styling -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;       /* full viewport height */
+      overflow: hidden;   /* prevent scroll */
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: url('background.png') center/cover no-repeat;
+      font-family: Arial, sans-serif;
+    }
+
+    #startButton {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 18px 36px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(90deg, #00cccc, #0099ff); /* mostly cyan/blue */
+      color: #fff;
+      font-size: 1.2em;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      box-shadow: 0 0 6px #00cccc, 0 0 12px #0099ff, 0 0 18px #00cccc; /* toned glow in cyan/blue */
+      cursor: pointer;
+      transition: all 0.3s ease-in-out;
+      text-shadow: 0 0 3px #fff, 0 0 6px #00cccc;
+    }
+
+    #startButton:hover {
+      box-shadow: 0 0 12px #00cccc, 0 0 24px #0099ff, 0 0 36px #00cccc;
+      transform: translateX(-50%) scale(1.05);
+    }
+
+    #title {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      font-size: 2.5em;
+      font-weight: bold;
+      color: #fff;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #00cccc, #0099ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 0 6px #00cccc, 0 0 12px #0099ff;
+      transition: all 0.3s ease-in-out;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 id="title">SPIME.IM</h1>
+    <button id="startButton" onclick="loop()">START</button>
+    <p id="responseMessage"></p>
+  </div>
+
+<script>
+let uuid = "";
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+}
+
+async function sendToApi() {
+    var host = window.location.host;
+    const apiUrl = "https://" + host + "/prod/conversation";
+    uuid = generateUUID();
+
+    const requestBody = {
+      input: `{}`,
+      name: uuid,
+      stateMachineArn:
+        "arn:aws:states:us-east-1:516311263615:stateMachine:ai-conversation-workflow"
+    };
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        document.getElementById("responseMessage").innerText = "Successfully sent!";
+        console.log("API Response:", data);
+      } else {
+        document.getElementById("responseMessage").innerText = "Failed to send.";
+        console.error("Error:", response.statusText);
+      }
+    } catch (error) {
+      document.getElementById("responseMessage").innerText = "An error occurred.";
+      console.error("Error:", error);
+    }
+}
+
+function sleep(ms) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
+async function waitForAudioFile(index, maxTries = 60) {
+  const filePath = `outputs/${uuid}/${index}.mp3`;
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      const res = await fetch(filePath, { method: 'HEAD', cache: "no-store" });
+      if (res.ok) return true;
+    } catch (e) {}
+    await sleep(1000);
+  }
+  return false;
+}
+
+// Waits for either the next audio to appear or the end marker
+async function waitForNextAudioOrEnd(index, uuid, maxTries = 60) {
+  const nextPath = `outputs/${uuid}/${index}.mp3`;
+  const endPath = `outputs/${uuid}/end`;
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      let res = await fetch(nextPath, { method: 'HEAD', cache: "no-store" });
+      if (res.ok) return "audio";
+      res = await fetch(endPath, { method: 'HEAD', cache: "no-store" });
+      if (res.ok) return "end";
+    } catch (e) {}
+    await sleep(1000);
+  }
+  return null;
+}
+
+function playSingleAudio(index) {
+  return new Promise((resolve, reject) => {
+    const filePath = `outputs/${uuid}/${index}.mp3`;
+    const audio = new Audio(filePath);
+    audio.addEventListener("ended", resolve);
+    audio.addEventListener("error", reject);
+    audio.play().catch(reject);
+  });
+}
+
+async function playAllAudioAndCheckEnd() {
+  let index = 0;
+  while (true) {
+    try {
+      await playSingleAudio(index);
+    } catch (e) {
+      // couldn't play, treat as finished
+      break;
+    }
+    const result = await waitForNextAudioOrEnd(index + 1, uuid, 60);
+    if (result === "audio") {
+      index++;
+      continue;
+    } else if (result === "end") {
+      console.log("End marker detected, finishing audio sequence!");
+      break;
+    } else {
+      // Neither found in N tries
+      break;
+    }
+  }
+}
+
+async function mainLoop() {
+  while (true) {
+    await sendToApi();
+
+    const hasFirst = await waitForAudioFile(0, 60);
+    if (!hasFirst) {
+      console.error("First audio not found, skipping this loop");
+      continue;
+    }
+    await playAllAudioAndCheckEnd();
+    await sleep(1000);
+  }
+}
+
+function loop() {
+  if (!window._autoLoopStarted) {
+    window._autoLoopStarted = true;
+    mainLoop().catch(console.error);
+  }
+}
+</script>
+</body>
+</html>

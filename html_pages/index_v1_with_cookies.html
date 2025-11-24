@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Conversation</title>
+  <!-- Add some basic styling -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .container {
+      max-width: 500px;
+      margin: auto;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      resize: none;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #responseMessage {
+      margin-top: 10px;
+      color: green;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Ask a question</h1>
+    <textarea id="textInput" placeholder="Enter your question here..."></textarea>
+    <button onclick="sendToApi();setTimeout(playAudio, 2000)">Ask</button>
+    <p id="responseMessage"></p>
+  </div>
+
+<script>
+let uuid = "";
+let audio = "";
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    if (match) {
+      return match[2];
+    }
+  return null;
+}
+
+async function sendToApi() {
+    const inputValue = document.getElementById("textInput").value;
+    // const cookieCloudFrontPolicy = getCookie("CloudFront-Policy");
+    // const cookieCloudFrontKeyPairId = getCookie("CloudFront-Key-Pair-Id");
+    // const cookieCloudFrontSignature = getCookie("CloudFront-Signature");
+
+    // if (!cookieCloudFrontPolicy || !cookieCloudFrontKeyPairId || !cookieCloudFrontSignature) {
+    //   document.getElementById("responseMessage").innerText = "Cookies not found.";
+    //   console.error("Required cookies not found.");
+    //   return;
+    // }
+    // URL of your API endpoint
+    var host = window.location.host;
+    //const apiUrl = "https://d3unt024ga38w6.cloudfront.net/prod/execution"; // Replace with your actual API URL
+    const apiUrl = "https://" + host + "/prod/conversation"; // Replace with your actual API URL
+    
+    uuid = generateUUID();
+    // Construct the body of the POST request
+    const requestBody = {
+      input: `{\"Topic\":\"${inputValue}\"}`,
+      name: uuid,
+      stateMachineArn:
+        //"arn:aws:states:eu-west-1:992382403092:stateMachine:ai-conversation-matteo-mus",
+        "arn:aws:states:us-east-1:516311263615:stateMachine:ai-conversation-workflow"
+    };
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          //"Cookie": "CloudFront-Policy=" + cookieCloudFrontPolicy + "; CloudFront-Key-Pair-Id=" + cookieCloudFrontKeyPairId + "; CloudFront-Signature=" + cookieCloudFrontSignature,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      // Handle the API response
+      if (response.ok) {
+        const data = await response.json();
+        document.getElementById("responseMessage").innerText = "Successfully sent!";
+        console.log("API Response:", data);
+      } else {
+        document.getElementById("responseMessage").innerText = "Failed to send.";
+        console.error("Error:", response.statusText);
+      }
+    } catch (error) {
+      document.getElementById("responseMessage").innerText = "An error occurred.";
+      console.error("Error:", error);
+    }
+  }
+
+async function playAudio() {
+  let index = 0; // Start from 0.mp3
+  let errorCount = 0; // Count consecutive errors
+  
+  async function loadAndPlayFile() {
+    const filePath = `outputs/${uuid}/${index}.mp3`;
+    const audio = new Audio(filePath);
+
+    try {
+      // Attempt to load the audio file
+      await audio.play();
+      console.log(`Playing file: ${filePath}`);
+      errorCount = 0; // Reset error count on successful play
+      
+      // Listen for 'ended' to play the next file (only after the current finishes)
+      audio.addEventListener("ended", function () {
+        console.log(`${filePath} ended`);
+        index++; // Increment index to move to the next file
+        loadAndPlayFile(); // Play the next file
+      });
+    } catch (error) {
+      console.log(`File not available: ${filePath}. Retrying...`);
+      
+      errorCount++;
+      if (errorCount >= 60) {
+        console.error("Stopping playback");
+        return; // Stop trying after 5 consecutive errors
+      }
+      // Retry after a short delay if the file isn't available
+      setTimeout(loadAndPlayFile, 1000); // Retry after 1 second
+    }
+  }
+  // Start the process by trying to play the first file
+  loadAndPlayFile();
+}
+</script>
+</body>
+</html>

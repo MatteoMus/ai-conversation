@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Audio API Example</title>
+</head>
+<body>
+  <h1>Web Audio API Example</h1>
+
+  <script>
+const fs = require("fs");
+const crypto = require("crypto");
+
+// Load private key
+function loadPrivateKey(privateKeyPath) {
+    const keyData = fs.readFileSync(privateKeyPath, "utf-8");
+    /*return crypto.createPrivateKey({
+        key: keyData,
+        format: "pem",
+    });*/
+    return keyData; // Return the key data directly for signing
+}
+
+// Generate policy
+function createPolicy(resourceUrl, expiration) {
+    const policy = {
+        Statement: [
+            {
+                Resource: resourceUrl,
+                Condition: {
+                    DateLessThan: {
+                        "AWS:EpochTime": expiration,
+                    },
+                },
+            },
+        ],
+    };
+    return JSON.stringify(policy);
+}
+
+// Sign policy
+function signPolicy(policy, privateKey) {
+    const signature = crypto.sign(
+        "sha1",
+        Buffer.from(policy, "utf-8"),
+        { key: privateKey }
+    );
+    return signature.toString("base64");
+}
+
+const privateKeyPath = "private_key.pem";
+const resourceUrl = "https://d28mmynr7t7cal.cloudfront.net/*";
+const expiration = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+const keyPairId = "K1EC52VWBJUBWC";
+
+const privateKey = loadPrivateKey(privateKeyPath);
+const policy = createPolicy(resourceUrl, expiration);
+const signature = signPolicy(policy, privateKey);
+
+// Output in the correct format
+const output = `Cookie: CloudFront-Policy=${Buffer.from(policy, "utf-8").toString(
+    "base64"
+)};CloudFront-Signature=${signature};CloudFront-Key-Pair-Id=${keyPairId}`;
+
+console.log(output);
+  </script>
+</body>
+</html>

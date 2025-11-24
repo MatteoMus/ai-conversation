@@ -1,0 +1,594 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Variables",
+  "States": {
+    "Variables": {
+      "Type": "Pass",
+      "Next": "RandomStart",
+      "Assign": {
+        "Speaker1": {
+          "agentId": "MMEMV3D00P",
+          "agentAliasId": "DV1VR4HFSO",
+          "name": "Speaker1",
+          "voice": "Matthew",
+          "knowledgeBaseId": "Y1HLBKNOOY"
+        },
+        "Speaker2": {
+          "agentId": "YRMWKYCJUQ",
+          "agentAliasId": "NQUXK6YRHU",
+          "name": "Speaker2",
+          "voice": "Ruth",
+          "knowledgeBaseId": "8WPNBQJNRI"
+        },
+        "Ssml": {
+          "agentId": "EMCMWQNLST",
+          "agentAliasId": "NT9HMO4MKC",
+          "name": "Ssml"
+        },
+        "Stop": {
+          "agentId": "TXHUU0W7HO",
+          "agentAliasId": "TY6GUW5DVM",
+          "name": "Ssml"
+        },
+        "Greeting1": {
+          "agentId": "7MNTTF3VHP",
+          "agentAliasId": "Y6TRZE6SCN",
+          "name": "Greeting1",
+          "voice": "Matthew"
+        },
+        "Greeting2": {
+          "agentId": "INEO2IIRGI",
+          "agentAliasId": "VOWJQRFVJH",
+          "name": "Greeting2",
+          "voice": "Ruth"
+        },
+        "Abstract": {
+          "agentId": "5PSDDKBVRE",
+          "agentAliasId": "2KYPVIE7UJ",
+          "name": "Abstract"
+        },
+        "ConversationParams": {
+          "session_id": "{% $states.context.Execution.Name %}",
+          "enable_trace": false,
+          "end_session": false,
+          "prompt_creation_configurations": {
+            "excludePreviousThinkingSteps": true,
+            "previousConversationTurnsToInclude": 100
+          }
+        }
+      }
+    },
+    "RandomStart": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "Topic": "{% $states.result.Payload.Topic %}",
+        "StartSpeaker": "{% $states.result.Payload.StartSpeaker %}",
+        "End": "{% $states.result.Payload.End %}"
+      },
+      "Arguments": {
+        "FunctionName": "arn:aws:lambda:us-east-1:516311263615:function:start:$LATEST",
+        "Payload": {
+          "UUID": "{% $states.context.Execution.Name %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Topic?"
+    },
+    "Topic?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "EndNoMoreTopics",
+          "Condition": "{% ($states.input.End) = (true) %}"
+        }
+      ],
+      "Default": "Topic"
+    },
+    "EndNoMoreTopics": {
+      "Type": "Succeed"
+    },
+    "Topic": {
+      "Type": "Pass",
+      "Next": "Start",
+      "Assign": {
+        "Topic": "{% $states.input.Topic %}"
+      }
+    },
+    "Start": {
+      "Type": "Parallel",
+      "Next": "Speaker",
+      "Branches": [
+        {
+          "StartAt": "StartSpeaker?",
+          "States": {
+            "StartSpeaker?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "StartSpeaker1",
+                  "Condition": "{% $contains($states.input.StartSpeaker, \"Speaker1\") %}"
+                }
+              ],
+              "Default": "StartSpeaker2"
+            },
+            "StartSpeaker1": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "StartSpeaker": "{% $Speaker1 %}"
+              }
+            },
+            "StartSpeaker2": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "StartSpeaker": "{% $Speaker2 %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "StartInput",
+          "States": {
+            "StartInput": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "StartInput": "{% $Topic %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "StartTurnCounter",
+          "States": {
+            "StartTurnCounter": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "StartTurnCounter": 0
+              }
+            }
+          }
+        }
+      ],
+      "Output": {
+        "Speaker": "{% $states.result[0].StartSpeaker %}",
+        "Input": "{% $states.result[1].StartInput %}",
+        "Turn": "{% $states.result[2].StartTurnCounter %}"
+      }
+    },
+    "Speaker": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "SpeakerResponse": "{% $states.result.Payload %}",
+        "Speaker": "{% $states.input.Speaker %}",
+        "Turn": "{% $states.input.Turn %}"
+      },
+      "Arguments": {
+        "FunctionName": "ai-conversation-speaker",
+        "Payload": {
+          "Speaker": "{% $states.input.Speaker %}",
+          "Ssml": "{% $Ssml %}",
+          "Abstract": "{% $Abstract %}",
+          "ConversationParams": "{% $ConversationParams %}",
+          "Input": "{% $states.input.Input %}",
+          "Turn": "{% $states.input.Turn %}",
+          "UUID": "{% $states.context.Execution.Name %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Validation"
+    },
+    "Validation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Retry",
+          "Condition": "{% ($states.input.SpeakerResponse.validation) = (false) %}"
+        }
+      ],
+      "Default": "ConversationHistory"
+    },
+    "ConversationHistory": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "ConversationHistory": "{% $states.result.Payload %}",
+        "Turn": "{% $states.input.Turn %}",
+        "SpeakerResponse": "{% $states.input.SpeakerResponse %}",
+        "Speaker": "{% $states.input.Speaker %}"
+      },
+      "Arguments": {
+        "FunctionName": "ai-conversation-history",
+        "Payload": {
+          "UUID": "{% $states.context.Execution.Name %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Stop"
+    },
+    "Stop": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "Turn": "{% $states.input.Turn %}",
+        "Speaker": "{% $states.input.Speaker %}",
+        "StopResponse": "{% $states.result.Payload %}",
+        "SpeakerResponse": "{% $states.input.SpeakerResponse %}"
+      },
+      "Arguments": {
+        "FunctionName": "ai-conversation-stop",
+        "Payload": {
+          "Stop": "{% $Stop %}",
+          "ConversationParams": "{% $ConversationParams %}",
+          "Turn": "{% $states.input.Turn %}",
+          "UUID": "{% $states.context.Execution.Name %}",
+          "ConversationHistory": "{% $states.input.ConversationHistory %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "NextStep?"
+    },
+    "NextStep?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "GreetingVariables",
+          "Condition": "{% ($states.input.StopResponse.stop) = (true) %}"
+        }
+      ],
+      "Default": "CheckTurnNumber"
+    },
+    "GreetingVariables": {
+      "Type": "Pass",
+      "Next": "NextGreeting",
+      "Assign": {
+        "GreetingCount": "{% $states.input.Turn + 2 %}"
+      }
+    },
+    "NextGreeting": {
+      "Type": "Parallel",
+      "Next": "Greeting?",
+      "Branches": [
+        {
+          "StartAt": "NextGreeting?",
+          "States": {
+            "NextGreeting?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "NextGreeting1",
+                  "Condition": "{% ($contains($states.input.Speaker.name, \"Speaker1\") or $contains($states.input.Speaker.name, \"Greeting2\")) %}"
+                }
+              ],
+              "Default": "NextGreeting2"
+            },
+            "NextGreeting1": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextGreeting": "{% $Greeting1 %}"
+              }
+            },
+            "NextGreeting2": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextGreeting": "{% $Greeting2 %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "NextGreetingInput",
+          "States": {
+            "NextGreetingInput": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextGreetingInput": "{% $join([$states.input.SpeakerResponse.response_text, $states.input.StopResponse.reasoning]) %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "NextGreetingTurnCounter",
+          "States": {
+            "NextGreetingTurnCounter": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextGreetingTurnCounter": "{% $states.input.Turn + 1 %}"
+              }
+            }
+          }
+        }
+      ],
+      "Output": {
+        "Speaker": "{% $states.result[0].NextGreeting %}",
+        "Input": "{% $states.result[1].NextGreetingInput %}",
+        "Turn": "{% $states.result[2].NextGreetingTurnCounter %}",
+        "StopResponse": "{% $states.input.StopResponse %}"
+      }
+    },
+    "Greeting?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Greeting",
+          "Condition": "{% ($states.input.Turn) <= ($GreetingCount) %}"
+        }
+      ],
+      "Default": "ConversationFull"
+    },
+    "ConversationFull": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": "{% $states.result.Payload %}",
+      "Arguments": {
+        "FunctionName": "ai-conversation-history",
+        "Payload": {
+          "UUID": "{% $states.context.Execution.Name %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "EndFlag"
+    },
+    "EndFlag": {
+      "Type": "Task",
+      "Arguments": {
+        "Body": {},
+        "Bucket": "ai-conversation-frontend",
+        "Key": "{% $join(['outputs/', $states.context.Execution.Name, '/end']) %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+      "Next": "End"
+    },
+    "Greeting": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "SpeakerResponse": "{% $states.result.Payload %}",
+        "Speaker": "{% $states.input.Speaker %}",
+        "Turn": "{% $states.input.Turn %}",
+        "StopResponse": "{% $states.input.StopResponse %}"
+      },
+      "Arguments": {
+        "FunctionName": "ai-conversation-speaker",
+        "Payload": {
+          "Speaker": "{% $states.input.Speaker %}",
+          "Ssml": "{% $Ssml %}",
+          "ConversationParams": "{% $ConversationParams %}",
+          "Input": "{% $states.input.Input %}",
+          "Turn": "{% $states.input.Turn %}",
+          "UUID": "{% $states.context.Execution.Name %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "NextGreeting"
+    },
+    "Retry": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "RetrySpeaker",
+          "States": {
+            "RetrySpeaker": {
+              "Type": "Pass",
+              "Output": {
+                "RetrySpeaker": "{% $states.input.Speaker %}"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "RetryInput",
+          "States": {
+            "RetryInput": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "RetryInput": "{% $join(['SSML error: ', $states.input.Response.response_error, ' Generate a new response from scratch that continues the discussion based on this topic: ', $Topic]) %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "RetryTurnCounter",
+          "States": {
+            "RetryTurnCounter": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "RetryTurnCounter": "{% $states.input.Turn %}"
+              }
+            }
+          }
+        }
+      ],
+      "Output": {
+        "Speaker": "{% $states.result[0].RetrySpeaker %}",
+        "Input": "{% $states.result[1].RetryInput %}",
+        "Turn": "{% $states.result[2].RetryTurnCounter %}"
+      },
+      "Next": "Speaker"
+    },
+    "CheckTurnNumber": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Next",
+          "Condition": "{% ($states.input.Turn) < (9) %}"
+        }
+      ],
+      "Default": "GreetingVariables"
+    },
+    "End": {
+      "Type": "Succeed"
+    },
+    "Next": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "NextSpeaker?",
+          "States": {
+            "NextSpeaker?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "NextSpeaker2",
+                  "Condition": "{% $contains($states.input.Speaker.name, \"Speaker1\") %}"
+                }
+              ],
+              "Default": "NextSpeaker1"
+            },
+            "NextSpeaker2": {
+              "Type": "Pass",
+              "Output": {
+                "NextSpeaker": "{% $Speaker2 %}"
+              },
+              "End": true
+            },
+            "NextSpeaker1": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextSpeaker": "{% $Speaker1 %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "NextInput?",
+          "States": {
+            "NextInput?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "NextInput2",
+                  "Condition": "{% $contains($states.input.Speaker.name, \"Speaker1\") %}"
+                }
+              ],
+              "Default": "NextInput1"
+            },
+            "NextInput2": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextInput": "{% $join(['Based on the history of the conversation, continue the discussion providing your optimistic point of view: ', $states.input.SpeakerResponse.response_text]) %}"
+              }
+            },
+            "NextInput1": {
+              "Type": "Pass",
+              "Output": {
+                "NextInput": "{% $join(['Based on the history of the conversation, continue the discussion providing your skeptical point of view: ', $states.input.SpeakerResponse.response_text]) %}"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "NextTurnCounter",
+          "States": {
+            "NextTurnCounter": {
+              "Type": "Pass",
+              "End": true,
+              "Output": {
+                "NextTurnCounter": "{% $states.input.Turn + 1 %}"
+              }
+            }
+          }
+        }
+      ],
+      "Output": {
+        "Speaker": "{% $states.result[0].NextSpeaker %}",
+        "Input": "{% $states.result[1].NextInput %}",
+        "Turn": "{% $states.result[2].NextTurnCounter %}"
+      },
+      "Next": "Speaker"
+    }
+  },
+  "QueryLanguage": "JSONata"
+}

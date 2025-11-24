@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a AI conversational frontend
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the project
+    Default: ai-conversation
+  S3BucketCode:
+    Type: String
+    Description: S3 bucket where the Lambda code is stored
+    Default: ai-conversation-code
+  S3BucketCodeLambdaKey:
+    Type: String
+    Description: S3 key for the Lambda code zip file
+    Default: lambda-edge.zip
+  ApiGatewayDomain:
+    Type: String
+    Description: URL of the API Gateway endpoint
+    Default: hwdqhqs7h1.execute-api.us-east-1.amazonaws.com
+  ApiKey:
+    Type: String
+    Description: API Key for the API Gateway
+    Default: z2fKZuSvCz3cb4jNG2lNF1jlDAZpRBPu7p84U3WA
+    NoEcho: true
+  PrivateKeySSM:
+    Type: String
+    Description: SSM Parameter where the private key for signed cookies is stored
+    Default: /ai-conversation/lambda-edge/private-key-pem
+
+Resources:
+
+## S3
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-frontend
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${S3Bucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+## LAMBDA
+  LambdaEdge:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-lambda-edge-tmp
+      Description: !Sub "CF: ${AWS::StackName}"
+      Runtime: python3.9
+      Role: !GetAtt LambdaRole.Arn
+      Handler: lambda_function.lambda_handler
+      Code:
+        S3Bucket: !Ref S3BucketCode
+        S3Key: !Ref S3BucketCodeLambdaKey
+  
+  LambdaEdgeVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaEdge
+      Description: !Sub ${ProjectName}-lambda-edge-version
+
+## CLOUDFRONT
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-frontend
+      DistributionConfig:
+        Comment: !Sub "CF: ${AWS::StackName}"
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt S3Bucket.DomainName
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: ApiGatewayOrigin
+            DomainName: !Ref ApiGatewayDomain
+            OriginCustomHeaders:
+              - HeaderName: x-api-key
+                HeaderValue: !Ref ApiKey
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TrustedKeyGroups:
+            - !Ref CloudFrontKeyGroup
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+        CacheBehaviors:
+          - TargetOriginId: S3Origin
+            PathPattern: /login
+            Compress: true
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+            LambdaFunctionAssociations:
+              - EventType: viewer-request
+                LambdaFunctionARN: !Ref LambdaEdgeVersion
+          - TargetOriginId: ApiGatewayOrigin
+            PathPattern: /prod/conversation
+            Compress: false
+            ViewerProtocolPolicy: https-only
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            TrustedKeyGroups:
+              - !Ref CloudFrontKeyGroup
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHost
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 403
+            ResponsePagePath: /403.html
+  
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig: 
+        Description: !Sub "CF: ${AWS::StackName}"
+        Name: !Sub ${ProjectName}-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudfrontPublicKey:
+    Type: AWS::CloudFront::PublicKey
+    Properties:
+      PublicKeyConfig: 
+        CallerReference: !Sub ${ProjectName}-frontend-public-key
+        Name: !Sub ${ProjectName}-frontend-public-key
+        Comment: !Sub "CF: ${AWS::StackName}"
+        EncodedKey: |-
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhwBnBghWOzAuoMpskh4W
+          Fw7JnyHeGyG5z6GQk/2foTpTt4bgCM77H/JbmH+L7VVt0OlyNp0tsSMVynncCaS8
+          PEnDjKRZvFgMvXDACcNskZFKUHJ29T/VAzERZ/l9FUR4UA+kA8BzAzN37y3Rri12
+          oKfgwDiD8NWkJFufSmPliIQABsjbXBKJpMJMrmITzLzw46JgHZAC4vgFkgzVcahj
+          1vETf34oWdhQkM34LK9x6zjV2amLklnkByiwMGkGFRWKBrph8yHD0MsSwy9g7jS+
+          JC+VkMjGOlihLSv2Muv0LUazymfyIVYb8YbC05aXCxahU7k4t28aSwC/ViT2aj2R
+          zQIDAQAB
+          -----END PUBLIC KEY-----
+
+  CloudFrontKeyGroup:
+    Type: AWS::CloudFront::KeyGroup
+    Properties:
+      KeyGroupConfig:
+        Name: !Sub ${ProjectName}-frontend-key-group
+        Items:
+          - !Ref CloudfrontPublicKey
+        Comment: !Sub "CF: ${AWS::StackName}"
+## ROLES
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+                - edgelambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Lambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
